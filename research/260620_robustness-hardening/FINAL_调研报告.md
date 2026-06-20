@@ -28,7 +28,7 @@ sleep / session inactive 前完整停止 tap，wake / active 后完整重建；t
 
 ### 1.4 真实状态、右键元数据与安全测试
 
-菜单状态必须来自 tap 真实状态，启动失败不能静默；普通右键补发保留 flags 与 clickState。`swift test` 只能测试纯逻辑，禁止默认向系统发送真实 down/up；真实事件测试必须显式启用并保证清理。
+菜单状态必须来自 tap 真实状态，启动失败不能静默；普通右键补发保留 flags 与 clickState。零依赖 selftest 只能测试纯逻辑，禁止默认向系统发送真实 down/up；真实事件测试必须显式启用并保证清理。
 
 依据：[Hammerspoon tap 状态与完整销毁](https://github.com/Hammerspoon/hammerspoon/blob/08e93f679bb5d9b88d2e8bd493d964a133c89960/extensions/eventtap/libeventtap.m#L196-L258)、[LinearMouse 测试卡住 WindowServer 的修复](https://github.com/linearmouse/linearmouse/commit/2f90965c62405dd88d8a49263f3db82fd0a60889)。
 
