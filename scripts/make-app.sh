@@ -60,6 +60,17 @@ cat > "$APP_DIR/Contents/Info.plist" <<'PLIST'
 PLIST
 
 plutil -lint "$APP_DIR/Contents/Info.plist"
-codesign --force --deep --sign - --identifier com.bigbug.safarigestures "$APP_DIR"
+
+# 优先用本机自签名证书签名：designated requirement 绑定到证书而非 cdhash，
+# 这样每次重编重签后 macOS 仍认作同一 App，辅助功能/输入监控授权不失效。
+# 没有该证书的机器（如他人 clone）自动回退 ad-hoc 签名。
+SIGN_ID="SafariGestures Self-Signed"
+if security find-identity -p codesigning 2>/dev/null | grep -q "$SIGN_ID"; then
+    echo "用自签名证书签名：$SIGN_ID"
+    codesign --force --deep --sign "$SIGN_ID" --identifier com.bigbug.safarigestures "$APP_DIR"
+else
+    echo "（未找到自签名证书，回退 ad-hoc；如需稳定授权请先跑 scripts/setup-signing-cert.sh）"
+    codesign --force --deep --sign - --identifier com.bigbug.safarigestures "$APP_DIR"
+fi
 codesign --verify --deep --strict --verbose=2 "$APP_DIR"
 echo "已生成：$APP_DIR"
