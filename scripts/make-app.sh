@@ -48,9 +48,7 @@ cat > "$APP_DIR/Contents/Info.plist" <<'PLIST'
     <key>LSUIElement</key>
     <true/>
     <key>NSAccessibilityUsageDescription</key>
-    <string>SafariGestures 需要辅助功能权限，以便在后续版本中读取鼠标手势并触发 Safari 操作。</string>
-    <key>NSInputMonitoringUsageDescription</key>
-    <string>SafariGestures 需要输入监控权限，以只读方式观察 Safari 中的右键鼠标轨迹。</string>
+    <string>SafariGestures 需要辅助功能权限，以识别 Safari 中的右键手势并触发对应操作。</string>
     <key>NSHighResolutionCapable</key>
     <true/>
     <key>NSPrincipalClass</key>
