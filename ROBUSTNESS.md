@@ -94,6 +94,14 @@ C1 是本轮加固的验收基础。本机只有 Command Line Tools，没有 `XC
 
 ### A2. Event Tap 健康检查与睡眠唤醒
 
+实施进度（当前改动）：
+
+- [x] `isRunning` 同时检查 Mach port 有效性和 tap enabled 状态
+- [x] tap disabled 先取消会话，重新启用失败则异步完整重建
+- [x] 增加 10 秒低频健康检查，失败时仅重建现有 tap
+- [x] 睡眠、唤醒和用户会话切换使用完整 stop/start
+- [ ] 完成睡眠唤醒和用户切换真机验收
+
 实现要求：
 
 - `isRunning` 同时检查 tap 存在、Mach port 有效、`CGEvent.tapIsEnabled`

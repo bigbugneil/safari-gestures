@@ -17,19 +17,27 @@ final class EventTap: NSObject {
 
   private var tap: CFMachPort?
   private var runLoopSource: CFRunLoopSource?
+  private var healthCheckTimer: Timer?
+  private var rebuildScheduled = false
+  private var shouldRun = false
   private var session = GestureSession()
   private var pendingRightClick: PendingRightClick?
   private var trackingWatchdog: Timer?
   private let overlay = GestureOverlay()
 
   var isRunning: Bool {
-    tap != nil
+    guard let tap else { return false }
+    return CFMachPortIsValid(tap) && CGEvent.tapIsEnabled(tap: tap)
   }
 
   @discardableResult
   func start() -> Bool {
-    guard tap == nil else {
+    shouldRun = true
+    guard !isRunning else {
       return true
+    }
+    if tap != nil {
+      destroyTap(logStop: false)
     }
 
     // 注意：.defaultTap（可拦截/补发事件）只需要“辅助功能”权限，不需要“输入监控”。
@@ -88,15 +96,22 @@ final class EventTap: NSObject {
     runLoopSource = source
     CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
     CGEvent.tapEnable(tap: tap, enable: true)
+    startHealthCheck()
     log(level: .info, "手势监听已启用：Safari 内按住右键划动触发动作，单击照常弹菜单。")
     return true
   }
 
   func stop() {
-    guard let tap else {
-      cancelTracking(reason: "事件监听已停止")
-      return
-    }
+    shouldRun = false
+    destroyTap(logStop: true)
+  }
+
+  private func destroyTap(logStop: Bool) {
+    healthCheckTimer?.invalidate()
+    healthCheckTimer = nil
+    cancelTracking(reason: "事件监听已停止")
+
+    guard let tap else { return }
 
     if let runLoopSource {
       CFRunLoopRemoveSource(CFRunLoopGetMain(), runLoopSource, .commonModes)
@@ -107,8 +122,9 @@ final class EventTap: NSObject {
 
     self.tap = nil
     runLoopSource = nil
-    cancelTracking(reason: "事件监听已停止")
-    log(level: .info, "手势监听已停用。")
+    if logStop {
+      log(level: .info, "手势监听已停用。")
+    }
   }
 
   /// 返回值：true=吞掉该事件，false=原样放行。
@@ -117,7 +133,12 @@ final class EventTap: NSObject {
       cancelTracking(reason: "系统临时停用了 Event Tap")
       if let tap {
         CGEvent.tapEnable(tap: tap, enable: true)
-        log(level: .fault, "系统临时停用了 Event Tap，现已自动重新启用。")
+        if CFMachPortIsValid(tap), CGEvent.tapIsEnabled(tap: tap) {
+          log(level: .fault, "系统临时停用了 Event Tap，重新启用成功。")
+        } else {
+          log(level: .fault, "Event Tap 重新启用失败，将销毁后重建。")
+          scheduleRebuild(reason: "tap disabled 后重新启用失败")
+        }
       }
       return false
     }
@@ -245,6 +266,43 @@ final class EventTap: NSObject {
     )
     trackingWatchdog = timer
     RunLoop.main.add(timer, forMode: .common)
+  }
+
+  private func startHealthCheck() {
+    healthCheckTimer?.invalidate()
+    let timer = Timer(
+      timeInterval: 10,
+      target: self,
+      selector: #selector(checkHealth),
+      userInfo: nil,
+      repeats: true
+    )
+    healthCheckTimer = timer
+    RunLoop.main.add(timer, forMode: .common)
+  }
+
+  @objc private func checkHealth() {
+    guard shouldRun, !isRunning else { return }
+    log(level: .fault, "Event Tap 健康检查失败，将销毁后重建。")
+    scheduleRebuild(reason: "低频健康检查失败")
+  }
+
+  private func scheduleRebuild(reason: String) {
+    guard shouldRun, !rebuildScheduled else { return }
+    rebuildScheduled = true
+
+    DispatchQueue.main.async { [weak self] in
+      guard let self else { return }
+      self.rebuildScheduled = false
+      guard self.shouldRun else { return }
+
+      self.destroyTap(logStop: false)
+      if self.start() {
+        self.log(level: .info, "Event Tap 销毁后重建成功：\(reason)")
+      } else {
+        self.log(level: .error, "Event Tap 销毁后重建失败：\(reason)")
+      }
+    }
   }
 
   @objc private func trackingTimedOut() {

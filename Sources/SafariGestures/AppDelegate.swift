@@ -10,9 +10,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   private var loginItemMenuItem: NSMenuItem!
   private let eventTap = EventTap()
   private var isEnabled = true
+  private var systemPauseReasons: Set<SystemPauseReason> = []
 
   func applicationDidFinishLaunching(_ notification: Notification) {
     configureStatusItem()
+    observeSystemLifecycle()
 
     if AccessibilityPermission.isTrusted {
       startEventTapIfPossible()
@@ -26,8 +28,74 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
   func applicationDidBecomeActive(_ notification: Notification) {
     // 用户从系统设置返回后自动复查权限，无需重启 App。
-    if isEnabled, AccessibilityPermission.isTrusted {
+    if systemPauseReasons.isEmpty, isEnabled, AccessibilityPermission.isTrusted {
       startEventTapIfPossible()
+    }
+  }
+
+  func applicationWillTerminate(_ notification: Notification) {
+    NSWorkspace.shared.notificationCenter.removeObserver(self)
+    eventTap.stop()
+  }
+
+  private func observeSystemLifecycle() {
+    let center = NSWorkspace.shared.notificationCenter
+    center.addObserver(
+      self,
+      selector: #selector(workspaceWillSleep),
+      name: NSWorkspace.willSleepNotification,
+      object: nil
+    )
+    center.addObserver(
+      self,
+      selector: #selector(workspaceDidWake),
+      name: NSWorkspace.didWakeNotification,
+      object: nil
+    )
+    center.addObserver(
+      self,
+      selector: #selector(sessionDidResignActive),
+      name: NSWorkspace.sessionDidResignActiveNotification,
+      object: nil
+    )
+    center.addObserver(
+      self,
+      selector: #selector(sessionDidBecomeActive),
+      name: NSWorkspace.sessionDidBecomeActiveNotification,
+      object: nil
+    )
+  }
+
+  @objc private func workspaceWillSleep(_ notification: Notification) {
+    pauseForSystemTransition(.sleep, reason: "系统即将睡眠")
+  }
+
+  @objc private func workspaceDidWake(_ notification: Notification) {
+    resumeAfterSystemTransition(.sleep, reason: "系统已唤醒")
+  }
+
+  @objc private func sessionDidResignActive(_ notification: Notification) {
+    pauseForSystemTransition(.sessionInactive, reason: "用户会话已失活")
+  }
+
+  @objc private func sessionDidBecomeActive(_ notification: Notification) {
+    resumeAfterSystemTransition(.sessionInactive, reason: "用户会话已恢复")
+  }
+
+  private func pauseForSystemTransition(_ reason: SystemPauseReason, reason message: String) {
+    systemPauseReasons.insert(reason)
+    Self.logger.info("\(message, privacy: .public)，停用 Event Tap。")
+    eventTap.stop()
+  }
+
+  private func resumeAfterSystemTransition(_ reason: SystemPauseReason, reason message: String) {
+    systemPauseReasons.remove(reason)
+    guard systemPauseReasons.isEmpty else { return }
+
+    Self.logger.info("\(message, privacy: .public)，准备重建 Event Tap。")
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+      guard let self, self.systemPauseReasons.isEmpty else { return }
+      self.startEventTapIfPossible()
     }
   }
 
@@ -145,7 +213,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   }
 
   private func startEventTapIfPossible() {
-    guard isEnabled, !eventTap.isRunning else {
+    guard systemPauseReasons.isEmpty, isEnabled, !eventTap.isRunning else {
       return
     }
     _ = eventTap.start()
@@ -167,4 +235,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     eventTap.stop()
     NSApp.terminate(nil)
   }
+}
+
+private enum SystemPauseReason: Hashable {
+  case sleep
+  case sessionInactive
 }
