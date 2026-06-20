@@ -7,3 +7,11 @@ SafariGestures.app/
 Package.resolved
 # macOS
 .DS_Store
+
+# 内部协作 / 工作文档（仅本地保留，不进公开仓库）
+research/
+docs/
+sessions/
+progress.md
+CLAUDE.md
+AGENTS.md
