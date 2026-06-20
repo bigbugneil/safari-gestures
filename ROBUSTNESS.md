@@ -1,6 +1,6 @@
 # SafariGestures 第 6 步：健壮性加固执行清单
 
-> 状态：调研与方案定稿完成，正在按清单实施；真机与长稳验收尚未完成。
+> 状态：代码与工程化实施完成；真机异常矩阵、证书轮换和 24 小时长稳验收尚未完成。
 > 工作分支：`codex/robustness-hardening`
 > 稳定基线：`main` / `v0.2.0`
 > 完成目标：通过本清单后合并回 `main`，发布 `v0.3.0`，再安装到 `~/Applications/`。
@@ -36,7 +36,7 @@
 
 - [ ] B1. 收紧自签名私钥权限
 
-当前 `setup-signing-cert.sh` 使用 `security import -A`。系统帮助明确说明 `-A` 会允许任何应用免提示访问私钥，不推荐使用。该私钥又决定了辅助功能授权身份，因此必须在正式安装前处理。
+旧版 `setup-signing-cert.sh` 使用 `security import -A`。系统帮助明确说明 `-A` 会允许任何应用免提示访问私钥，不推荐使用。该私钥又决定了辅助功能授权身份，因此必须在正式安装前处理。
 
 目标方案：
 
@@ -85,7 +85,7 @@ C1 是本轮加固的验收基础。本机只有 Command Line Tools，没有 `XC
 
 实现要求：
 
-- 抽出明确的 `idle / tracking` 会话状态
+- 抽出明确的 `idle / tracking / discardingUntilMouseUp` 会话状态
 - 普通点击采用 deferred click：按下时暂存，释放时根据是否命中手势决定补发或丢弃
 - 所有异常路径只走一个 `cancelTracking(reason:)` 入口
 - tap 禁用、Safari 失焦、停用、退出、睡眠、用户会话失活、屏幕重配置时立即清轨迹并隐藏覆盖层
@@ -98,7 +98,7 @@ C1 是本轮加固的验收基础。本机只有 Command Line Tools，没有 `XC
 - [ ] 按住右键后 Cmd-Tab，松开时其他 App 不出现异常菜单或卡键
 - [ ] 手势中途停用监听，轨迹立即消失，重新启用后正常
 - [ ] 模拟 tap disabled 后不会执行旧手势
-- [ ] 丢失 mouse-up 后最多 5 秒恢复 `idle`
+- [ ] 丢失 mouse-up 后最多 5 秒停止 tracking；延迟 up 被吞掉，或下一次新 down 可恢复
 
 ### A2. Event Tap 健康检查与睡眠唤醒
 
@@ -208,6 +208,7 @@ C1 是本轮加固的验收基础。本机只有 Command Line Tools，没有 `XC
 
 - [x] 保存并补发原始位置、flags 和 click state
 - [x] 保留内部合成事件标记，异常取消不补发点击
+- [x] 最新候选版在 Safari 收藏卡片上一次右键正常弹出一次原生菜单
 - [ ] 完成带修饰键与快速连续右键真机验收
 
 实现要求：
@@ -219,9 +220,19 @@ C1 是本轮加固的验收基础。本机只有 Command Line Tools，没有 `XC
 
 验收标准：
 
-- [ ] 普通右键单击仍一次弹出菜单
+- [x] 普通右键单击仍一次弹出菜单
 - [ ] 带 Shift / Option / Command 的右键不会丢失修饰状态
 - [ ] 快速连续右键不产生重复菜单或死循环
+
+### A7. 资源释放与长稳
+
+实施进度（当前改动）：
+
+- [x] stop 时失效 Timer、RunLoop source 和 Mach port，手势覆盖层立即隐藏
+- [x] 屏幕参数变化时关闭并释放覆盖窗口
+- [x] 最新候选版短时静置 CPU 0.0%，physical footprint 8.9MB，peak 9.3MB
+- [x] 最新候选版 `leaks` 为 0，crash report 为 0
+- [ ] 完成 60 秒轨迹压力、2 小时交互和 24 小时静置观察
 
 ## 四、自动测试计划
 
@@ -247,7 +258,7 @@ C1 是本轮加固的验收基础。本机只有 Command Line Tools，没有 `XC
 ### 功能回归
 
 - [ ] 8 个手势逐一触发且一次只执行一次
-- [ ] 普通右键单击一次正常弹菜单
+- [x] 普通右键单击一次正常弹菜单
 - [ ] 无映射轨迹不执行动作、不弹菜单
 - [ ] 非 Safari 应用完全不受影响
 - [ ] 菜单停用/启用正常
@@ -265,10 +276,10 @@ C1 是本轮加固的验收基础。本机只有 Command Line Tools，没有 `XC
 
 ### 资源指标
 
-- [ ] 静置 CPU 接近 0
+- [x] 静置 CPU 接近 0
 - [ ] 初始与峰值内存有记录，24 小时内无单调增长
-- [ ] `leaks` 无确定泄漏
-- [ ] 没有 SafariGestures crash report
+- [x] `leaks` 无确定泄漏
+- [x] 没有 SafariGestures crash report
 - [ ] 日志中没有连续 tap disabled / 重建循环
 
 ## 六、提交顺序
@@ -315,9 +326,9 @@ git diff --check
 
 - [ ] A1-A8 全部完成
 - [ ] B1 完成
-- [ ] `swift build -c release` 与 `swift run -c release safari-gestures-selftest` 全绿
+- [x] `swift build -c release` 与 `swift run -c release safari-gestures-selftest` 全绿（40 项）
 - [ ] 功能、异常、多屏、睡眠唤醒测试通过
 - [ ] 24 小时资源观察无明显增长或 tap 失效
-- [ ] 代码审查无高优先级遗留问题
+- [x] 代码审查无高优先级遗留问题
 - [ ] 合并回 `main` 并打 `v0.3.0`
 - [ ] 最终 App 安装到 `~/Applications/` 后重新验证登录启动
