@@ -9,7 +9,7 @@ import SafariGesturesCore
 private let kSyntheticEventMarker: Int64 = 0x5347_5F52  // "SG_R"
 
 @MainActor
-final class EventTap {
+final class EventTap: NSObject {
   private static let logger = Logger(
     subsystem: "com.bigbug.safarigestures",
     category: "EventTap"
@@ -17,8 +17,9 @@ final class EventTap {
 
   private var tap: CFMachPort?
   private var runLoopSource: CFRunLoopSource?
-  private var points: [CGPoint] = []
-  private var isTracking = false
+  private var session = GestureSession()
+  private var pendingRightClick: PendingRightClick?
+  private var trackingWatchdog: Timer?
   private let overlay = GestureOverlay()
 
   var isRunning: Bool {
@@ -93,7 +94,7 @@ final class EventTap {
 
   func stop() {
     guard let tap else {
-      resetTracking()
+      cancelTracking(reason: "事件监听已停止")
       return
     }
 
@@ -106,13 +107,14 @@ final class EventTap {
 
     self.tap = nil
     runLoopSource = nil
-    resetTracking()
+    cancelTracking(reason: "事件监听已停止")
     log(level: .info, "手势监听已停用。")
   }
 
   /// 返回值：true=吞掉该事件，false=原样放行。
   private func handle(type: CGEventType, event: CGEvent) -> Bool {
     if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+      cancelTracking(reason: "系统临时停用了 Event Tap")
       if let tap {
         CGEvent.tapEnable(tap: tap, enable: true)
         log(level: .fault, "系统临时停用了 Event Tap，现已自动重新启用。")
@@ -124,39 +126,44 @@ final class EventTap {
     case .rightMouseDown:
       // 非 Safari 前台：完全不干预，右键照常。
       guard isSafariFrontmost else {
-        resetTracking()
+        cancelTracking(reason: "Safari 不在前台")
         return false
       }
       // Safari 前台：先扣住右键（菜单暂不弹），开始记录轨迹，松手时再决定。
-      isTracking = true
-      points = [event.location]
+      if session.isTracking {
+        cancelTracking(reason: "收到新的右键按下，替换未结束的手势")
+      }
+      session.begin(at: event.location)
+      pendingRightClick = PendingRightClick(event: event)
       overlay.begin()
       overlay.addPoint(event.location)
+      startTrackingWatchdog()
       return true
 
     case .rightMouseDragged:
-      guard isTracking else {
+      guard session.isTracking else {
         return false
       }
       guard isSafariFrontmost else {
-        resetTracking()
-        return false
+        cancelTracking(reason: "手势期间 Safari 失去前台")
+        return true
       }
-      points.append(event.location)
-      overlay.addPoint(event.location)
+      if session.append(event.location) {
+        overlay.addPoint(event.location)
+      }
       return true
 
     case .rightMouseUp:
-      guard isTracking else {
+      guard session.isTracking else {
         return false
       }
       guard isSafariFrontmost else {
-        resetTracking()
-        return false
+        cancelTracking(reason: "手势期间 Safari 失去前台")
+        return true
       }
-      points.append(event.location)
+      _ = session.append(event.location)
       let swallow = resolveGesture()
-      resetTracking()
+      clearTracking()
       return swallow
 
     default:
@@ -170,13 +177,12 @@ final class EventTap {
 
   /// 松开右键时的分流决策；返回 true 表示吞掉原始 up 事件。
   private func resolveGesture() -> Bool {
-    let directions = GestureRecognizer.directions(from: points)
+    let directions = GestureRecognizer.directions(from: session.points)
 
     // 空序列 = 几乎没移动 = 普通右键单击 → 补发一次真右键，让原生菜单正常弹出。
     if directions.isEmpty {
-      let location = points.first ?? points.last ?? CGPoint.zero
-      log(level: .default, "普通右键单击（点数=\(points.count)）→ 补发原生右键菜单")
-      replayRightClick(at: location)
+      log(level: .default, "普通右键单击（点数=\(session.points.count)）→ 补发原生右键菜单")
+      replayRightClick()
       return true
     }
 
@@ -193,19 +199,24 @@ final class EventTap {
   }
 
   /// 补发一次右键 down+up，触发 Safari 原生右键菜单；事件打合成标记以便回调跳过。
-  private func replayRightClick(at location: CGPoint) {
+  private func replayRightClick() {
+    guard let pendingRightClick else {
+      log(level: .error, "补发右键失败：缺少原始点击上下文。")
+      return
+    }
+
     let source = CGEventSource(stateID: .combinedSessionState)
     guard
       let down = CGEvent(
         mouseEventSource: source,
         mouseType: .rightMouseDown,
-        mouseCursorPosition: location,
+        mouseCursorPosition: pendingRightClick.location,
         mouseButton: .right
       ),
       let up = CGEvent(
         mouseEventSource: source,
         mouseType: .rightMouseUp,
-        mouseCursorPosition: location,
+        mouseCursorPosition: pendingRightClick.location,
         mouseButton: .right
       )
     else {
@@ -213,20 +224,62 @@ final class EventTap {
       return
     }
 
+    down.flags = pendingRightClick.flags
+    up.flags = pendingRightClick.flags
+    down.setIntegerValueField(.mouseEventClickState, value: pendingRightClick.clickState)
+    up.setIntegerValueField(.mouseEventClickState, value: pendingRightClick.clickState)
     down.setIntegerValueField(.eventSourceUserData, value: kSyntheticEventMarker)
     up.setIntegerValueField(.eventSourceUserData, value: kSyntheticEventMarker)
     down.post(tap: .cghidEventTap)
     up.post(tap: .cghidEventTap)
   }
 
-  private func resetTracking() {
-    points.removeAll(keepingCapacity: true)
-    isTracking = false
+  private func startTrackingWatchdog() {
+    trackingWatchdog?.invalidate()
+    let timer = Timer(
+      timeInterval: 5,
+      target: self,
+      selector: #selector(trackingTimedOut),
+      userInfo: nil,
+      repeats: false
+    )
+    trackingWatchdog = timer
+    RunLoop.main.add(timer, forMode: .common)
+  }
+
+  @objc private func trackingTimedOut() {
+    cancelTracking(reason: "等待右键抬起超时")
+  }
+
+  private func cancelTracking(reason: String) {
+    if session.isTracking {
+      log(level: .fault, "取消未完成手势：\(reason)")
+    }
+    clearTracking()
+  }
+
+  private func clearTracking() {
+    trackingWatchdog?.invalidate()
+    trackingWatchdog = nil
+    session.reset()
+    pendingRightClick = nil
     overlay.end()
   }
 
   private func log(level: OSLogType, _ message: String) {
     Self.logger.log(level: level, "\(message, privacy: .public)")
     print("[SafariGestures] \(message)")
+  }
+}
+
+private struct PendingRightClick {
+  let location: CGPoint
+  let flags: CGEventFlags
+  let clickState: Int64
+
+  init(event: CGEvent) {
+    location = event.location
+    flags = event.flags
+    clickState = event.getIntegerValueField(.mouseEventClickState)
   }
 }

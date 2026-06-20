@@ -64,7 +64,7 @@ public struct GestureSession: Sendable {
   public mutating func reset() -> Bool {
     let wasTracking = isTracking
     state = .idle
-    points.removeAll(keepingCapacity: true)
+    points.removeAll(keepingCapacity: false)
     pathLength = 0
     return wasTracking
   }
