@@ -34,7 +34,7 @@ final class GestureOverlay {
   /// 右键按下：准备一条新轨迹（先不显示，等真的移动了再显示，避免单击闪线）。
   func begin() {
     ensureWindow()
-    trailView?.points.removeAll(keepingCapacity: true)
+    trailView?.reset()
     shown = false
   }
 
@@ -47,10 +47,10 @@ final class GestureOverlay {
       x: cgPoint.x - screen.frame.minX,
       y: screen.frame.height - (cgPoint.y - screen.frame.minY)
     )
-    view.points.append(viewPoint)
+    view.append(viewPoint)
 
     // 移动超过阈值才真正显示，纯单击不画。
-    if !shown, view.pathLength() > 8 {
+    if !shown, view.pathLength > 8 {
       window?.orderFrontRegardless()
       shown = true
     }
@@ -61,7 +61,7 @@ final class GestureOverlay {
 
   /// 右键抬起或中断：清空并隐藏。
   func end() {
-    trailView?.points.removeAll(keepingCapacity: true)
+    trailView?.reset()
     if shown {
       trailView?.needsDisplay = true
       window?.orderOut(nil)
@@ -71,18 +71,36 @@ final class GestureOverlay {
 }
 
 private final class TrailView: NSView {
-  var points: [CGPoint] = []
+  private static let maximumPointCount = 512
+  private var points: [CGPoint] = []
+  private(set) var pathLength: CGFloat = 0
 
   override var isFlipped: Bool { false }
   override var isOpaque: Bool { false }
 
-  func pathLength() -> CGFloat {
-    guard points.count >= 2 else { return 0 }
-    var length: CGFloat = 0
-    for i in 1..<points.count {
-      length += hypot(points[i].x - points[i - 1].x, points[i].y - points[i - 1].y)
+  func append(_ point: CGPoint) {
+    if let previous = points.last {
+      pathLength += hypot(point.x - previous.x, point.y - previous.y)
     }
-    return length
+    makeRoomIfNeeded()
+    points.append(point)
+  }
+
+  func reset() {
+    points.removeAll(keepingCapacity: false)
+    pathLength = 0
+  }
+
+  private func makeRoomIfNeeded() {
+    guard points.count >= Self.maximumPointCount else { return }
+
+    let finalPoint = points.last
+    points = points.enumerated().compactMap { index, point in
+      index.isMultiple(of: 2) ? point : nil
+    }
+    if let finalPoint, points.last != finalPoint {
+      points.append(finalPoint)
+    }
   }
 
   override func draw(_ dirtyRect: NSRect) {
