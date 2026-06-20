@@ -31,14 +31,9 @@ final class EventTap {
       return true
     }
 
-    guard CGPreflightListenEventAccess() else {
-      log(
-        level: .error,
-        "缺少“输入监控”权限：请在“系统设置 → 隐私与安全性 → 输入监控”中启用 SafariGestures，然后重新启动 App。"
-      )
-      _ = CGRequestListenEventAccess()
-      return false
-    }
+    // 注意：.defaultTap（可拦截/补发事件）只需要“辅助功能”权限，不需要“输入监控”。
+    // 早期 .listenOnly 版本曾在此处预检 CGPreflightListenEventAccess，切到 .defaultTap 后该检查多余且会误拦，已移除。
+    // 权限是否到位交给下面的 tapCreate 判定：返回 nil 即代表缺辅助功能权限。
 
     let eventMask =
       (CGEventMask(1) << CGEventType.rightMouseDown.rawValue)
