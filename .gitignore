@@ -1,0 +1,8 @@
+# 构建产物（可由 scripts/make-app.sh 重建）
+.build/
+SafariGestures.app/
+# SwiftPM
+.swiftpm/
+Package.resolved
+# macOS
+.DS_Store
