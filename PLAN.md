@@ -145,6 +145,8 @@ safari-gestures/
 ## 七、第 6 步：健壮性加固 / 生产就绪审查（功能全做完后）
 
 > 工程术语：**可靠性加固 / 生产就绪审查（production-readiness review）/ 非功能性需求（NFR）**——除了"功能对"，还要"长期跑得稳、不泄漏、不被杀、异常不崩"。
+>
+> **当前执行入口：[`ROBUSTNESS.md`](ROBUSTNESS.md)**。详细证据与取舍见 [`research/260620_robustness-hardening/FINAL_调研报告.md`](research/260620_robustness-hardening/FINAL_调研报告.md)。后续改动以定稿清单为准，避免边做边改范围。
 
 做法：① 按经验列 + ② **借鉴同类开源（MacGesture / Mac Mouse Fix 等）的已知坑与加固手法**，提前写好防范，不等出事再救。
 
@@ -153,10 +155,14 @@ safari-gestures/
 - [ ] 长时间运行（挂 24h）：CPU 空闲≈0、内存平稳不增长
 - [ ] Event Tap 被系统禁用后自愈（已有 tapDisabled 重启，需压测验证）
 - [ ] 睡眠唤醒 / 切换用户 / 改分辨率·多屏后，tap 与轨迹层仍正常
-- [ ] 被系统杀掉后能自动拉起（LaunchAgent KeepAlive 或登录项）
-- [ ] 右键永不卡死：up 事件丢失等异常路径有兜底
+- [ ] 右键会话抽成可测试状态机：tap disabled、失焦、停用、睡眠、up 丢失统一 cancel
+- [ ] 轨迹限流 + 点数上限 + 增量绘制，避免高轮询率下 O(n²) 开销
+- [ ] 多屏按手势起点选屏，覆盖窗口降为 `.statusBar`，Mission Control 不残影
+- [ ] （条件项）若长稳测试确认真实崩溃，再评估只针对异常退出的 LaunchAgent；本轮不加无条件 KeepAlive
+- [ ] 右键永不卡死：up 事件丢失等异常路径有 5 秒兜底
 - [ ] 异常 / 极端输入不崩溃（防御式编程）
 - [ ] 资源释放干净（退出、停用时）
+- [ ] 标准 `swift test` 只跑纯逻辑，不向系统发送真实鼠标/键盘事件
 - [ ] 隐私复核：无网络、无文件写入、不读键盘内容
 
 ## 八、待办 / 决策记录
