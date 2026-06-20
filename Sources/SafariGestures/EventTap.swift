@@ -10,6 +10,13 @@ private let kSyntheticEventMarker: Int64 = 0x5347_5F52  // "SG_R"
 
 @MainActor
 final class EventTap: NSObject {
+  enum Status: Equatable {
+    case stopped
+    case running
+    case recovering
+    case failed
+  }
+
   private static let logger = Logger(
     subsystem: "com.bigbug.safarigestures",
     category: "EventTap"
@@ -25,6 +32,11 @@ final class EventTap: NSObject {
   private var trackingWatchdog: Timer?
   private let overlay = GestureOverlay()
 
+  private(set) var status: Status = .stopped
+  var onStatusChange: ((Status) -> Void)? {
+    didSet { onStatusChange?(status) }
+  }
+
   var isRunning: Bool {
     guard let tap else { return false }
     return CFMachPortIsValid(tap) && CGEvent.tapIsEnabled(tap: tap)
@@ -34,8 +46,10 @@ final class EventTap: NSObject {
   func start() -> Bool {
     shouldRun = true
     guard !isRunning else {
+      transition(to: .running)
       return true
     }
+    transition(to: .recovering)
     if tap != nil {
       destroyTap(logStop: false)
     }
@@ -83,12 +97,14 @@ final class EventTap: NSObject {
         level: .error,
         "Event Tap 创建失败：请检查“系统设置 → 隐私与安全性 → 辅助功能”中的 SafariGestures 权限；重编后可能需要删除旧条目并重新添加当前 App。"
       )
+      transition(to: .failed)
       return false
     }
 
     guard let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0) else {
       CFMachPortInvalidate(tap)
       log(level: .error, "Event Tap 已创建，但无法建立 RunLoop source。")
+      transition(to: .failed)
       return false
     }
 
@@ -97,6 +113,7 @@ final class EventTap: NSObject {
     CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
     CGEvent.tapEnable(tap: tap, enable: true)
     startHealthCheck()
+    transition(to: .running)
     log(level: .info, "手势监听已启用：Safari 内按住右键划动触发动作，单击照常弹菜单。")
     return true
   }
@@ -104,6 +121,7 @@ final class EventTap: NSObject {
   func stop() {
     shouldRun = false
     destroyTap(logStop: true)
+    transition(to: .stopped)
   }
 
   private func destroyTap(logStop: Bool) {
@@ -131,9 +149,11 @@ final class EventTap: NSObject {
   private func handle(type: CGEventType, event: CGEvent) -> Bool {
     if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
       cancelTracking(reason: "系统临时停用了 Event Tap")
+      transition(to: .recovering)
       if let tap {
         CGEvent.tapEnable(tap: tap, enable: true)
         if CFMachPortIsValid(tap), CGEvent.tapIsEnabled(tap: tap) {
+          transition(to: .running)
           log(level: .fault, "系统临时停用了 Event Tap，重新启用成功。")
         } else {
           log(level: .fault, "Event Tap 重新启用失败，将销毁后重建。")
@@ -289,6 +309,7 @@ final class EventTap: NSObject {
   private func scheduleRebuild(reason: String) {
     guard shouldRun, !rebuildScheduled else { return }
     rebuildScheduled = true
+    transition(to: .recovering)
 
     DispatchQueue.main.async { [weak self] in
       guard let self else { return }
@@ -331,6 +352,12 @@ final class EventTap: NSObject {
   private func log(level: OSLogType, _ message: String) {
     Self.logger.log(level: level, "\(message, privacy: .public)")
     print("[SafariGestures] \(message)")
+  }
+
+  private func transition(to newStatus: Status) {
+    guard status != newStatus else { return }
+    status = newStatus
+    onStatusChange?(newStatus)
   }
 }
 

@@ -6,14 +6,20 @@ import ServiceManagement
 final class AppDelegate: NSObject, NSApplicationDelegate {
   private static let logger = Logger(subsystem: "com.bigbug.safarigestures", category: "AppDelegate")
   private var statusItem: NSStatusItem!
+  private var listenerStatusMenuItem: NSMenuItem!
   private var toggleMenuItem: NSMenuItem!
+  private var retryMenuItem: NSMenuItem!
   private var loginItemMenuItem: NSMenuItem!
   private let eventTap = EventTap()
   private var isEnabled = true
   private var systemPauseReasons: Set<SystemPauseReason> = []
+  private var hasShownListenerFailure = false
 
   func applicationDidFinishLaunching(_ notification: Notification) {
     configureStatusItem()
+    eventTap.onStatusChange = { [weak self] status in
+      self?.updateListenerStatus(status)
+    }
     observeSystemLifecycle()
 
     if AccessibilityPermission.isTrusted {
@@ -28,7 +34,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
   func applicationDidBecomeActive(_ notification: Notification) {
     // 用户从系统设置返回后自动复查权限，无需重启 App。
-    if systemPauseReasons.isEmpty, isEnabled, AccessibilityPermission.isTrusted {
+    guard isEnabled else {
+      updateListenerStatus(eventTap.status)
+      return
+    }
+    guard AccessibilityPermission.isTrusted else {
+      eventTap.stop()
+      updateListenerStatus(eventTap.status)
+      return
+    }
+    if systemPauseReasons.isEmpty {
       startEventTapIfPossible()
     }
   }
@@ -98,6 +113,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     systemPauseReasons.insert(reason)
     Self.logger.info("\(message, privacy: .public)，停用 Event Tap。")
     eventTap.stop()
+    updateListenerStatus(eventTap.status)
   }
 
   private func resumeAfterSystemTransition(_ reason: SystemPauseReason, reason message: String) {
@@ -105,6 +121,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     guard systemPauseReasons.isEmpty else { return }
 
     Self.logger.info("\(message, privacy: .public)，准备重建 Event Tap。")
+    updateListenerStatus(.recovering)
     DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
       guard let self, self.systemPauseReasons.isEmpty else { return }
       self.startEventTapIfPossible()
@@ -128,14 +145,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     let menu = NSMenu()
 
+    listenerStatusMenuItem = NSMenuItem(title: "状态：正在检查", action: nil, keyEquivalent: "")
+    listenerStatusMenuItem.isEnabled = false
+    menu.addItem(listenerStatusMenuItem)
+    menu.addItem(.separator())
+
     toggleMenuItem = NSMenuItem(
-      title: "启用/停用",
+      title: "停用手势",
       action: #selector(toggleEnabled(_:)),
       keyEquivalent: ""
     )
     toggleMenuItem.target = self
     menu.addItem(toggleMenuItem)
     updateToggleMenuItem()
+
+    retryMenuItem = NSMenuItem(
+      title: "重新启动监听",
+      action: #selector(retryListening),
+      keyEquivalent: ""
+    )
+    retryMenuItem.target = self
+    menu.addItem(retryMenuItem)
 
     loginItemMenuItem = NSMenuItem(
       title: "开机时启动",
@@ -165,6 +195,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     menu.addItem(quitItem)
 
     statusItem.menu = menu
+    updateListenerStatus(eventTap.status)
   }
 
   @objc
@@ -181,10 +212,49 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     } else {
       eventTap.stop()
     }
+    updateListenerStatus(eventTap.status)
   }
 
   private func updateToggleMenuItem() {
     toggleMenuItem.state = isEnabled ? .on : .off
+    toggleMenuItem.title = isEnabled ? "停用手势" : "启用手势"
+  }
+
+  private func updateListenerStatus(_ status: EventTap.Status) {
+    guard listenerStatusMenuItem != nil else { return }
+
+    if !isEnabled {
+      listenerStatusMenuItem.title = "状态：已停用"
+    } else if !AccessibilityPermission.isTrusted {
+      listenerStatusMenuItem.title = "状态：缺少辅助功能权限"
+    } else if !systemPauseReasons.isEmpty {
+      listenerStatusMenuItem.title = "状态：系统暂停"
+    } else {
+      switch status {
+      case .stopped:
+        listenerStatusMenuItem.title = "状态：已停用"
+      case .running:
+        listenerStatusMenuItem.title = "状态：监听正常"
+        hasShownListenerFailure = false
+      case .recovering:
+        listenerStatusMenuItem.title = "状态：监听恢复中"
+      case .failed:
+        listenerStatusMenuItem.title = "状态：监听失败"
+      }
+    }
+
+    retryMenuItem?.isHidden = !isEnabled || status == .running || !systemPauseReasons.isEmpty
+  }
+
+  @objc private func retryListening() {
+    guard isEnabled else { return }
+    guard AccessibilityPermission.isTrusted else {
+      showAccessibilityGuideIfNeeded()
+      return
+    }
+
+    eventTap.stop()
+    startEventTapIfPossible(showFailureAlert: true)
   }
 
   @objc
@@ -224,11 +294,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
   }
 
-  private func startEventTapIfPossible() {
+  private func startEventTapIfPossible(showFailureAlert: Bool = true) {
     guard systemPauseReasons.isEmpty, isEnabled, !eventTap.isRunning else {
       return
     }
-    _ = eventTap.start()
+    let started = eventTap.start()
+    if !started, showFailureAlert {
+      showListenerFailureIfNeeded()
+    }
+  }
+
+  private func showListenerFailureIfNeeded() {
+    guard !hasShownListenerFailure else { return }
+    hasShownListenerFailure = true
+
+    let alert = NSAlert()
+    alert.alertStyle = .warning
+    alert.messageText = "手势监听启动失败"
+    alert.informativeText =
+      "SafariGestures 没有成功建立系统事件监听。可先重试；若仍失败，请在辅助功能设置中删除旧条目并重新添加当前 App。"
+    alert.addButton(withTitle: "重新尝试")
+    alert.addButton(withTitle: "打开辅助功能设置")
+    alert.addButton(withTitle: "稍后")
+
+    NSApp.activate()
+    switch alert.runModal() {
+    case .alertFirstButtonReturn:
+      eventTap.stop()
+      startEventTapIfPossible(showFailureAlert: false)
+    case .alertSecondButtonReturn:
+      AccessibilityPermission.openSystemSettings()
+    default:
+      break
+    }
   }
 
   @objc
