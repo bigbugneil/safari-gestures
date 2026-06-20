@@ -1,9 +1,13 @@
 import AppKit
+import OSLog
+import ServiceManagement
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
+  private static let logger = Logger(subsystem: "com.bigbug.safarigestures", category: "AppDelegate")
   private var statusItem: NSStatusItem!
   private var toggleMenuItem: NSMenuItem!
+  private var loginItemMenuItem: NSMenuItem!
   private let eventTap = EventTap()
   private var isEnabled = true
 
@@ -53,6 +57,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     menu.addItem(toggleMenuItem)
     updateToggleMenuItem()
 
+    loginItemMenuItem = NSMenuItem(
+      title: "开机时启动",
+      action: #selector(toggleLoginItem),
+      keyEquivalent: ""
+    )
+    loginItemMenuItem.target = self
+    menu.addItem(loginItemMenuItem)
+    updateLoginItemState()
+
     menu.addItem(.separator())
 
     let aboutItem = NSMenuItem(
@@ -94,6 +107,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     toggleMenuItem.state = isEnabled ? .on : .off
   }
 
+  @objc
+  private func toggleLoginItem() {
+    do {
+      if SMAppService.mainApp.status == .enabled {
+        try SMAppService.mainApp.unregister()
+      } else {
+        try SMAppService.mainApp.register()
+      }
+    } catch {
+      Self.logger.error("切换开机自启失败：\(error.localizedDescription, privacy: .public)")
+    }
+    updateLoginItemState()
+  }
+
+  private func updateLoginItemState() {
+    loginItemMenuItem.state = (SMAppService.mainApp.status == .enabled) ? .on : .off
+  }
+
   private func showAccessibilityGuideIfNeeded() {
     guard !AccessibilityPermission.isTrusted else {
       return
@@ -124,7 +155,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   private func showAbout() {
     let alert = NSAlert()
     alert.messageText = "SafariGestures"
-    alert.informativeText = "一个轻量的 Safari 鼠标手势菜单栏工具。\n\n第 3 步会把已识别手势发送为 Safari 快捷键，但仍不拦截右键菜单。"
+    alert.informativeText = "一个轻量的 Safari 鼠标手势菜单栏工具。\n\nSafari 内按住右键划动触发动作（返回/前进/开关标签/切换标签等），划动时显示轨迹；普通右键单击照常弹出菜单。"
     alert.addButton(withTitle: "好")
 
     NSApp.activate()

@@ -1,8 +1,9 @@
 import CoreGraphics
 
-enum GestureRecognizer {
+public enum GestureRecognizer {
   /// 把鼠标轨迹压缩成 L/R/U/D 方向序列；不读取或修改任何外部状态。
-  static func directions(from points: [CGPoint], minSegment: CGFloat = 25) -> String {
+  /// 坐标按 CGEvent 全局坐标系：左上角原点、y 向下增大（y 减小=向上 U，y 增大=向下 D）。
+  public static func directions(from points: [CGPoint], minSegment: CGFloat = 25) -> String {
     guard points.count >= 2, minSegment > 0 else {
       return ""
     }

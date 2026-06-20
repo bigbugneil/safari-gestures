@@ -1,6 +1,7 @@
 import AppKit
 import CoreGraphics
 import OSLog
+import SafariGesturesCore
 
 /// 给「补发的右键」打的标记，写在事件的 eventSourceUserData 字段里。
 /// 真实硬件事件该字段为 0，我们的合成事件设成这个非零值，回调里据此跳过，避免无限回环。
