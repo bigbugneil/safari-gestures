@@ -85,24 +85,29 @@ session.append(CGPoint(x: 380, y: 240))
 sessionResults.append(verify("有效轨迹完成为手势", session.finish() == .gesture("R")))
 
 session.begin(rightClick: clickContext)
-sessionResults.append(verify("tap disabled 模拟取消活动会话", session.reset()))
+sessionResults.append(verify("tap disabled 模拟取消活动会话", session.cancelAwaitingMouseUp()))
+sessionResults.append(verify("异常取消后等待吞掉 mouse-up", session.isDiscardingUntilMouseUp))
 sessionResults.append(verify("异常取消后绝不补发点击", session.finish() == nil))
+sessionResults.append(verify("异常取消期间拒绝轨迹点", !session.append(CGPoint(x: 400, y: 240))))
+sessionResults.append(verify("异常 mouse-up 被消费", session.consumeCancelledMouseUp()))
+sessionResults.append(verify("消费 mouse-up 后回到 idle", session.state == .idle))
 
 session.begin(rightClick: clickContext)
-sessionResults.append(verify("watchdog 模拟取消活动会话", session.reset()))
+sessionResults.append(verify("watchdog 模拟取消活动会话", session.cancelAwaitingMouseUp()))
 sessionResults.append(verify("watchdog 取消后无完成结果", session.finish() == nil))
 
 session.begin(rightClick: clickContext)
-sessionResults.append(verify("Safari 失焦模拟取消活动会话", session.reset()))
+sessionResults.append(verify("Safari 失焦模拟取消活动会话", session.cancelAwaitingMouseUp()))
 sessionResults.append(verify("Safari 失焦后不补发点击", session.finish() == nil))
 
-session.begin(rightClick: clickContext)
 let replacementContext = GestureSession.RightClickContext(
   location: CGPoint(x: 640, y: 480),
   flagsRawValue: 0,
   clickState: 1
 )
-sessionResults.append(verify("tracking 中新 down 替换旧会话", session.begin(rightClick: replacementContext)))
+sessionResults.append(
+  verify("取消状态下新 down 开始新会话", !session.begin(rightClick: replacementContext))
+)
 sessionResults.append(
   verify("替换后只可能补发新点击", session.finish() == .replayRightClick(replacementContext))
 )

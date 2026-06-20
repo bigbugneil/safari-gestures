@@ -162,6 +162,22 @@ final class EventTap: NSObject {
       return false
     }
 
+    if session.isDiscardingUntilMouseUp {
+      switch type {
+      case .rightMouseDragged:
+        return true
+      case .rightMouseUp:
+        _ = session.consumeCancelledMouseUp()
+        clearTrackingVisuals()
+        return true
+      case .rightMouseDown:
+        // 上一次 up 永久丢失时，新 down 代表新的物理序列，可以重新开始。
+        session.reset()
+      default:
+        break
+      }
+    }
+
     switch type {
     case .rightMouseDown:
       // 非 Safari 前台：完全不干预，右键照常。
@@ -333,16 +349,20 @@ final class EventTap: NSObject {
   }
 
   private func cancelTracking(reason: String) {
-    if session.isTracking {
+    if session.cancelAwaitingMouseUp() {
       log(level: .fault, "取消未完成手势：\(reason)")
     }
-    clearTracking()
+    clearTrackingVisuals()
   }
 
   private func clearTracking() {
+    session.reset()
+    clearTrackingVisuals()
+  }
+
+  private func clearTrackingVisuals() {
     trackingWatchdog?.invalidate()
     trackingWatchdog = nil
-    session.reset()
     overlay.end()
   }
 

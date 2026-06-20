@@ -22,6 +22,7 @@ public struct GestureSession: Sendable {
   public enum State: Equatable, Sendable {
     case idle
     case tracking
+    case discardingUntilMouseUp
   }
 
   public struct Configuration: Sendable {
@@ -47,6 +48,10 @@ public struct GestureSession: Sendable {
 
   public var isTracking: Bool {
     state == .tracking
+  }
+
+  public var isDiscardingUntilMouseUp: Bool {
+    state == .discardingUntilMouseUp
   }
 
   /// 开始新会话。返回 true 表示开始前存在未结束的旧会话。
@@ -87,7 +92,10 @@ public struct GestureSession: Sendable {
 
   /// 正常 mouse-up 才允许完成会话。异常路径必须调用 reset，返回值因而永远为 nil。
   public mutating func finish() -> Completion? {
-    guard isTracking, let rightClickContext else {
+    guard isTracking else {
+      return nil
+    }
+    guard let rightClickContext else {
       reset()
       return nil
     }
@@ -100,15 +108,36 @@ public struct GestureSession: Sendable {
     return completion
   }
 
+  /// down 已被吞掉后的异常取消：继续吞掉同一物理序列，直到收到配对 mouse-up。
+  @discardableResult
+  public mutating func cancelAwaitingMouseUp() -> Bool {
+    guard isTracking else { return false }
+    clearPayload()
+    state = .discardingUntilMouseUp
+    return true
+  }
+
+  /// 消费异常会话最后的 mouse-up，避免向前台 App 放行孤立的 up。
+  @discardableResult
+  public mutating func consumeCancelledMouseUp() -> Bool {
+    guard isDiscardingUntilMouseUp else { return false }
+    reset()
+    return true
+  }
+
   /// 结束或异常取消都回到 idle；返回本次是否确实取消了活动会话。
   @discardableResult
   public mutating func reset() -> Bool {
     let wasTracking = isTracking
     state = .idle
+    clearPayload()
+    return wasTracking
+  }
+
+  private mutating func clearPayload() {
     points.removeAll(keepingCapacity: false)
     pathLength = 0
     rightClickContext = nil
-    return wasTracking
   }
 
   private mutating func makeRoomIfNeeded() {
