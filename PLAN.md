@@ -133,11 +133,14 @@ safari-gestures/
 ### 安全 / 隐私
 - 工具只读鼠标事件 + 看最前台 App 包名,**不读键盘内容、不联网、不存任何数据**。审代码时确认无网络请求、无文件写入(日志可选且默认关)。
 
-## 六、项目治理：测试版 vs 正式版（环境隔离 / 发布管理）
+## 六、项目治理：git 版本管理（简化版）
 
-- **当前 `files/safari-gestures/` = 测试/开发版**：用的都是临时测试案例 + ad-hoc 临时签名，随便折腾。
-- **全部功能完成 + 验收通过后 → 产出正式版**：稳定签名、装到正式位置（如 `~/Applications/SafariGestures.app`）、开机自启。
-- **之后任何加功能 / 改 bug**：先在测试版改 → 测试 → 验收 → 再同步到正式版发布。**不直接动正式版**。
+> 原本设想"测试版/正式版两套"，上了 git 后**不需要两套代码**——git tag/branch 管版本更优雅。简化成：
+
+- **一个真相源** = GitHub 仓库 `pj_safari_gestures`（https://github.com/bigbugneil/safari-gestures，公开）。所有改动走 git 提交。
+- **日常使用的版本** = 把 `scripts/make-app.sh` 编译好的 `SafariGestures.app` 拷到 `~/Applications/`，开机自启，平时不动它。
+- **升级流程** = 在仓库改 → `swift run safari-gestures-selftest` + Safari 真机测 → 满意 → `git commit` + `git tag v0.x` → 重编 → 替换 `~/Applications` 那个。**没有两套代码，只有 git 标签记版本。**
+- **签名稳定性**：本机用自签名证书 `SafariGestures Self-Signed`（`scripts/setup-signing-cert.sh` 创建），DR 绑定证书 → 重编重签后授权不失效，**只需首次授权一次**。
 
 ## 七、第 6 步：健壮性加固 / 生产就绪审查（功能全做完后）
 
