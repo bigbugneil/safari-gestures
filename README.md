@@ -57,6 +57,8 @@ swift run safari-gestures-selftest
 
 macOS 的辅助功能授权按 App 的代码签名身份记忆。ad-hoc 签名每次重编 CDHash 都变 → 系统当成新 App → 要重新授权。`setup-signing-cert.sh` 创建一个**免费的自签名证书**，`make-app.sh` 用它签名后，App 的 designated requirement 绑定到证书而非 CDHash，**重编重签后仍是同一身份，授权不失效，只需首次授权一次**。自签名证书不被系统「信任」是正常的，不影响本机签名与授权稳定性。
 
+新版脚本以不可导出方式保存私钥，且不再使用不安全的 `security import -A`。如果本机身份由旧版脚本创建，最终安装前运行 `bash scripts/setup-signing-cert.sh --rotate-insecure-existing`；证书轮换后需要最后一次重新授予辅助功能权限。
+
 ## 安装为日常版
 
 把编译好的 `SafariGestures.app` 拷到 `~/Applications/`，菜单里打开「开机时启动」即可常驻。版本用 git tag 记（如 `v0.2.0`）。
