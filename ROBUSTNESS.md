@@ -57,10 +57,10 @@
 ### C. 工程化补齐
 
 - [x] C1. 扩展零依赖自检入口，覆盖识别器与纯状态机
-- [ ] C2. GitHub Actions 自动执行构建与测试
-- [ ] C3. 打包过程改为干净临时目录构建，再原子替换 `.app`
-- [ ] C4. 明确公开仓库的 LICENSE
-- [ ] C5. 增加简短 CHANGELOG 和发布检查表
+- [x] C2. GitHub Actions 自动执行构建、自检与打包验证
+- [x] C3. 打包过程改为干净临时目录构建，再用 `FileManager.replaceItemAt` 替换 `.app`
+- [x] C4. 明确公开仓库的 LICENSE（当前保留全部权利，不自动授予再分发许可）
+- [x] C5. 增加简短 CHANGELOG 和发布检查表
 
 C1 是本轮加固的验收基础。本机只有 Command Line Tools，没有 `XCTest` / Swift Testing 模块，因此统一使用 `swift run -c release safari-gestures-selftest`；不为此引入远程测试依赖。C2-C5 应完成，但不与核心状态机改动混在同一个提交中。
 
@@ -73,7 +73,7 @@ C1 是本轮加固的验收基础。本机只有 Command Line Tools，没有 `XC
 - [x] 抽出不接触系统输入的 `GestureSession`
 - [x] 新 down、tap disabled、Safari 失焦、停用统一走取消入口
 - [x] 增加 5 秒 mouse-up 看门狗
-- [x] Safari 失焦后的孤立 drag/up 继续吞掉，不放行不成对事件
+- [x] 异常取消后进入 `discardingUntilMouseUp`，持续吞掉孤立 drag/up；新 down 可恢复
 - [ ] 完成对应真机异常场景验收
 
 当前风险：
@@ -227,16 +227,16 @@ C1 是本轮加固的验收基础。本机只有 Command Line Tools，没有 `XC
 
 扩展零依赖自检程序，至少覆盖：
 
-- [ ] 8 个现有方向序列
-- [ ] 微动仍判定为普通点击
-- [ ] 抖动、斜线和重复方向合并
-- [ ] tracking 中收到新 down 会取消旧会话
-- [ ] tracking 中 tap disabled 会复位且不执行动作
-- [ ] Safari 失焦后不会补发普通点击
-- [ ] watchdog 超时会复位
-- [ ] 超长轨迹不会超过点数上限
-- [ ] 普通点击元数据能够保留
-- [ ] 测试使用依赖注入的记录器验证“应发送什么”，不向真实 event tap 发事件
+- [x] 8 个现有方向序列
+- [x] 微动仍判定为普通点击
+- [x] 抖动、斜线和重复方向合并
+- [x] tracking 中收到新 down 会取消旧会话
+- [x] tracking 中 tap disabled 会复位且不执行动作
+- [x] Safari 失焦后不会补发普通点击
+- [x] watchdog 超时会复位
+- [x] 超长轨迹不会超过点数上限
+- [x] 普通点击元数据能够保留
+- [x] 纯状态机只返回“应补发点击 / 应执行方向 / 无结果”，不向真实 event tap 发事件
 
 `safari-gestures-selftest` 是本机和 CI 的统一纯逻辑测试入口。它不得依赖完整 Xcode，也不得向系统发送真实输入事件。
 

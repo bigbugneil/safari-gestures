@@ -90,7 +90,7 @@ public struct GestureSession: Sendable {
     return true
   }
 
-  /// 正常 mouse-up 才允许完成会话。异常路径必须调用 reset，返回值因而永远为 nil。
+  /// 正常 mouse-up 才允许完成会话。异常路径先调用 cancelAwaitingMouseUp，因而不会产生结果。
   public mutating func finish() -> Completion? {
     guard isTracking else {
       return nil
@@ -125,7 +125,7 @@ public struct GestureSession: Sendable {
     return true
   }
 
-  /// 结束或异常取消都回到 idle；返回本次是否确实取消了活动会话。
+  /// 强制清空为 idle；返回清空前是否处于 tracking。
   @discardableResult
   public mutating func reset() -> Bool {
     let wasTracking = isTracking

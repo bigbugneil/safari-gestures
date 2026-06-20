@@ -1,6 +1,7 @@
 # 构建产物（可由 scripts/make-app.sh 重建）
 .build/
 SafariGestures.app/
+.safari-gestures-package.*/
 # SwiftPM
 .swiftpm/
 Package.resolved

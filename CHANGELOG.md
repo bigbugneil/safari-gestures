@@ -1,0 +1,29 @@
+# Changelog
+
+本项目遵循语义化版本号；正式发布前的改动记录在 `Unreleased`。
+
+## Unreleased
+
+### Added
+
+- 右键手势纯状态机与零依赖自检
+- Event Tap 低频健康检查、完整重建和真实菜单状态
+- 睡眠、唤醒、用户会话及屏幕参数变化处理
+- 多屏轨迹覆盖和手势超时看门狗
+- GitHub Actions 构建、测试和打包验证
+
+### Changed
+
+- 轨迹采样和绘制限制为 512 点，并改为增量路径长度
+- 普通右键补发保留 flags 与 click state
+- 覆盖窗口从 shielding level 降为 `.statusBar`
+- App 打包改为干净暂存目录构建后再替换
+- 签名私钥改为不可导出且仅供 `codesign` 使用
+
+### Security
+
+- 移除签名证书导入脚本中的不安全 `security import -A`
+
+## 0.2.0 - 2026-06-20
+
+- 完成 8 个 Safari 右键手势、普通右键补发、轨迹线、菜单开关、登录启动与稳定签名基线

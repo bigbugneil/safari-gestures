@@ -5,10 +5,16 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 APP_DIR="$PROJECT_DIR/SafariGestures.app"
+STAGING_ROOT="$(mktemp -d "$PROJECT_DIR/.safari-gestures-package.XXXXXX")"
+STAGED_APP="$STAGING_ROOT/SafariGestures.app"
+SCRATCH_DIR="$STAGING_ROOT/build"
 
-"$SCRIPT_DIR/build.sh"
+trap 'rm -rf "$STAGING_ROOT"' EXIT
 
-BIN_DIR="$(cd "$PROJECT_DIR" && swift build -c release --show-bin-path)"
+cd "$PROJECT_DIR"
+swift build -c release --scratch-path "$SCRATCH_DIR"
+
+BIN_DIR="$(swift build -c release --scratch-path "$SCRATCH_DIR" --show-bin-path)"
 BINARY="$BIN_DIR/SafariGestures"
 
 if [[ ! -x "$BINARY" ]]; then
@@ -16,11 +22,11 @@ if [[ ! -x "$BINARY" ]]; then
     exit 1
 fi
 
-mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources"
-install -m 755 "$BINARY" "$APP_DIR/Contents/MacOS/SafariGestures"
-cp "$PROJECT_DIR/AppIcon.icns" "$APP_DIR/Contents/Resources/AppIcon.icns"
+mkdir -p "$STAGED_APP/Contents/MacOS" "$STAGED_APP/Contents/Resources"
+install -m 755 "$BINARY" "$STAGED_APP/Contents/MacOS/SafariGestures"
+cp "$PROJECT_DIR/AppIcon.icns" "$STAGED_APP/Contents/Resources/AppIcon.icns"
 
-cat > "$APP_DIR/Contents/Info.plist" <<'PLIST'
+cat > "$STAGED_APP/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -57,18 +63,19 @@ cat > "$APP_DIR/Contents/Info.plist" <<'PLIST'
 </plist>
 PLIST
 
-plutil -lint "$APP_DIR/Contents/Info.plist"
+plutil -lint "$STAGED_APP/Contents/Info.plist"
 
 # 优先用本机自签名证书签名：designated requirement 绑定到证书而非 cdhash，
-# 这样每次重编重签后 macOS 仍认作同一 App，辅助功能/输入监控授权不失效。
+# 这样每次重编重签后 macOS 仍认作同一 App，辅助功能授权不失效。
 # 没有该证书的机器（如他人 clone）自动回退 ad-hoc 签名。
 SIGN_ID="SafariGestures Self-Signed"
 if security find-identity -p codesigning 2>/dev/null | grep -q "$SIGN_ID"; then
     echo "用自签名证书签名：$SIGN_ID"
-    codesign --force --deep --sign "$SIGN_ID" --identifier com.bigbug.safarigestures "$APP_DIR"
+    codesign --force --deep --sign "$SIGN_ID" --identifier com.bigbug.safarigestures "$STAGED_APP"
 else
     echo "（未找到自签名证书，回退 ad-hoc；如需稳定授权请先跑 scripts/setup-signing-cert.sh）"
-    codesign --force --deep --sign - --identifier com.bigbug.safarigestures "$APP_DIR"
+    codesign --force --deep --sign - --identifier com.bigbug.safarigestures "$STAGED_APP"
 fi
-codesign --verify --deep --strict --verbose=2 "$APP_DIR"
+codesign --verify --deep --strict --verbose=2 "$STAGED_APP"
+swift "$SCRIPT_DIR/replace-app.swift" "$STAGED_APP" "$APP_DIR"
 echo "已生成：$APP_DIR"
