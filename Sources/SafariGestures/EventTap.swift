@@ -156,8 +156,7 @@ final class EventTap: NSObject {
       }
       session.begin(at: event.location)
       pendingRightClick = PendingRightClick(event: event)
-      overlay.begin()
-      overlay.addPoint(event.location)
+      overlay.begin(at: event.location)
       startTrackingWatchdog()
       return true
 
@@ -322,6 +321,11 @@ final class EventTap: NSObject {
     session.reset()
     pendingRightClick = nil
     overlay.end()
+  }
+
+  func screenConfigurationDidChange() {
+    cancelTracking(reason: "屏幕参数发生变化")
+    overlay.invalidateScreenConfiguration()
   }
 
   private func log(level: OSLogType, _ message: String) {

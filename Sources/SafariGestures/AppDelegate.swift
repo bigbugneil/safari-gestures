@@ -35,6 +35,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
   func applicationWillTerminate(_ notification: Notification) {
     NSWorkspace.shared.notificationCenter.removeObserver(self)
+    NotificationCenter.default.removeObserver(self)
     eventTap.stop()
   }
 
@@ -44,6 +45,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       self,
       selector: #selector(workspaceWillSleep),
       name: NSWorkspace.willSleepNotification,
+      object: nil
+    )
+    NotificationCenter.default.addObserver(
+      self,
+      selector: #selector(screenParametersDidChange),
+      name: NSApplication.didChangeScreenParametersNotification,
       object: nil
     )
     center.addObserver(
@@ -80,6 +87,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
   @objc private func sessionDidBecomeActive(_ notification: Notification) {
     resumeAfterSystemTransition(.sessionInactive, reason: "用户会话已恢复")
+  }
+
+  @objc private func screenParametersDidChange(_ notification: Notification) {
+    Self.logger.info("屏幕参数发生变化，取消当前手势并重建覆盖窗口。")
+    eventTap.screenConfigurationDidChange()
   }
 
   private func pauseForSystemTransition(_ reason: SystemPauseReason, reason message: String) {
