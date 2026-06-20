@@ -8,6 +8,9 @@ Package.resolved
 # macOS
 .DS_Store
 
+# 图标设计草稿（AI 出图，仅本地保留；交付物是编译出的 AppIcon.icns）
+icon/Gestures*.png
+
 # 内部协作 / 工作文档（仅本地保留，不进公开仓库）
 research/
 docs/
