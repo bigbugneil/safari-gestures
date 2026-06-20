@@ -28,7 +28,6 @@ final class EventTap: NSObject {
   private var rebuildScheduled = false
   private var shouldRun = false
   private var session = GestureSession()
-  private var pendingRightClick: PendingRightClick?
   private var trackingWatchdog: Timer?
   private let overlay = GestureOverlay()
 
@@ -174,8 +173,13 @@ final class EventTap: NSObject {
       if session.isTracking {
         cancelTracking(reason: "收到新的右键按下，替换未结束的手势")
       }
-      session.begin(at: event.location)
-      pendingRightClick = PendingRightClick(event: event)
+      session.begin(
+        rightClick: .init(
+          location: event.location,
+          flagsRawValue: event.flags.rawValue,
+          clickState: event.getIntegerValueField(.mouseEventClickState)
+        )
+      )
       overlay.begin(at: event.location)
       startTrackingWatchdog()
       return true
@@ -217,46 +221,45 @@ final class EventTap: NSObject {
 
   /// 松开右键时的分流决策；返回 true 表示吞掉原始 up 事件。
   private func resolveGesture() -> Bool {
-    let directions = GestureRecognizer.directions(from: session.points)
-
-    // 空序列 = 几乎没移动 = 普通右键单击 → 补发一次真右键，让原生菜单正常弹出。
-    if directions.isEmpty {
-      log(level: .default, "普通右键单击（点数=\(session.points.count)）→ 补发原生右键菜单")
-      replayRightClick()
+    let pointCount = session.points.count
+    guard let completion = session.finish() else {
+      log(level: .fault, "右键会话没有可完成的结果，已安全取消。")
       return true
     }
 
-    // 有方向但没映射到动作：是个手势动作意图，吞掉、不执行、也不弹菜单（避免意外菜单）。
-    guard let action = GestureMap.action(for: directions) else {
-      log(level: .default, "方向序列=\(directions) 未映射任何动作，已忽略")
+    switch completion {
+    case .replayRightClick(let context):
+      log(level: .default, "普通右键单击（点数=\(pointCount)）→ 补发原生右键菜单")
+      replayRightClick(context)
+      return true
+
+    case .gesture(let directions):
+      // 有方向但没映射到动作：吞掉、不执行、也不弹菜单。
+      guard let action = GestureMap.action(for: directions) else {
+        log(level: .default, "方向序列=\(directions) 未映射任何动作，已忽略")
+        return true
+      }
+
+      log(level: .default, "手势=\(directions) → \(action.name)，发送快捷键")
+      KeySender.send(action)
       return true
     }
-
-    // 命中手势 → 发送对应快捷键，并吞掉右键（菜单不弹）。
-    log(level: .default, "手势=\(directions) → \(action.name)，发送快捷键")
-    KeySender.send(action)
-    return true
   }
 
   /// 补发一次右键 down+up，触发 Safari 原生右键菜单；事件打合成标记以便回调跳过。
-  private func replayRightClick() {
-    guard let pendingRightClick else {
-      log(level: .error, "补发右键失败：缺少原始点击上下文。")
-      return
-    }
-
+  private func replayRightClick(_ context: GestureSession.RightClickContext) {
     let source = CGEventSource(stateID: .combinedSessionState)
     guard
       let down = CGEvent(
         mouseEventSource: source,
         mouseType: .rightMouseDown,
-        mouseCursorPosition: pendingRightClick.location,
+        mouseCursorPosition: context.location,
         mouseButton: .right
       ),
       let up = CGEvent(
         mouseEventSource: source,
         mouseType: .rightMouseUp,
-        mouseCursorPosition: pendingRightClick.location,
+        mouseCursorPosition: context.location,
         mouseButton: .right
       )
     else {
@@ -264,10 +267,10 @@ final class EventTap: NSObject {
       return
     }
 
-    down.flags = pendingRightClick.flags
-    up.flags = pendingRightClick.flags
-    down.setIntegerValueField(.mouseEventClickState, value: pendingRightClick.clickState)
-    up.setIntegerValueField(.mouseEventClickState, value: pendingRightClick.clickState)
+    down.flags = CGEventFlags(rawValue: context.flagsRawValue)
+    up.flags = CGEventFlags(rawValue: context.flagsRawValue)
+    down.setIntegerValueField(.mouseEventClickState, value: context.clickState)
+    up.setIntegerValueField(.mouseEventClickState, value: context.clickState)
     down.setIntegerValueField(.eventSourceUserData, value: kSyntheticEventMarker)
     up.setIntegerValueField(.eventSourceUserData, value: kSyntheticEventMarker)
     down.post(tap: .cghidEventTap)
@@ -340,7 +343,6 @@ final class EventTap: NSObject {
     trackingWatchdog?.invalidate()
     trackingWatchdog = nil
     session.reset()
-    pendingRightClick = nil
     overlay.end()
   }
 
@@ -358,17 +360,5 @@ final class EventTap: NSObject {
     guard status != newStatus else { return }
     status = newStatus
     onStatusChange?(newStatus)
-  }
-}
-
-private struct PendingRightClick {
-  let location: CGPoint
-  let flags: CGEventFlags
-  let clickState: Int64
-
-  init(event: CGEvent) {
-    location = event.location
-    flags = event.flags
-    clickState = event.getIntegerValueField(.mouseEventClickState)
   }
 }

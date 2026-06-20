@@ -40,6 +40,7 @@ let results: [Bool] = [
   check("微动当单击→空", [(100, 100), (105, 103)], ""),
   check("单点→空", [(100, 100)], ""),
   check("抖动合并同向→R", [(20, 100), (60, 102), (100, 98), (140, 101)], "R"),
+  check("斜线按主方向→R", [(20, 100), (60, 80), (100, 60)], "R"),
 ]
 
 print("GestureSession 自检：")
@@ -68,6 +69,43 @@ sessionResults.append(
 sessionResults.append(verify("reset 能结束活动会话", session.reset()))
 sessionResults.append(verify("reset 后回到 idle", session.state == .idle))
 sessionResults.append(verify("reset 后清空轨迹", session.points.isEmpty && session.pathLength == 0))
+
+let clickContext = GestureSession.RightClickContext(
+  location: CGPoint(x: 320, y: 240),
+  flagsRawValue: 0x18_0000,
+  clickState: 2
+)
+sessionResults.append(verify("deferred click 首次 begin 成功", !session.begin(rightClick: clickContext)))
+sessionResults.append(
+  verify("普通点击完整保留元数据", session.finish() == .replayRightClick(clickContext))
+)
+
+session.begin(rightClick: clickContext)
+session.append(CGPoint(x: 380, y: 240))
+sessionResults.append(verify("有效轨迹完成为手势", session.finish() == .gesture("R")))
+
+session.begin(rightClick: clickContext)
+sessionResults.append(verify("tap disabled 模拟取消活动会话", session.reset()))
+sessionResults.append(verify("异常取消后绝不补发点击", session.finish() == nil))
+
+session.begin(rightClick: clickContext)
+sessionResults.append(verify("watchdog 模拟取消活动会话", session.reset()))
+sessionResults.append(verify("watchdog 取消后无完成结果", session.finish() == nil))
+
+session.begin(rightClick: clickContext)
+sessionResults.append(verify("Safari 失焦模拟取消活动会话", session.reset()))
+sessionResults.append(verify("Safari 失焦后不补发点击", session.finish() == nil))
+
+session.begin(rightClick: clickContext)
+let replacementContext = GestureSession.RightClickContext(
+  location: CGPoint(x: 640, y: 480),
+  flagsRawValue: 0,
+  clickState: 1
+)
+sessionResults.append(verify("tracking 中新 down 替换旧会话", session.begin(rightClick: replacementContext)))
+sessionResults.append(
+  verify("替换后只可能补发新点击", session.finish() == .replayRightClick(replacementContext))
+)
 
 let failures = (results + sessionResults).filter { !$0 }.count
 if failures == 0 {

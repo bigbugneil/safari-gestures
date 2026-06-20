@@ -2,6 +2,23 @@ import CoreGraphics
 
 /// 一次右键手势的纯状态：负责轨迹采样与容量上限，不接触 Event Tap 或系统输入。
 public struct GestureSession: Sendable {
+  public struct RightClickContext: Equatable, Sendable {
+    public let location: CGPoint
+    public let flagsRawValue: UInt64
+    public let clickState: Int64
+
+    public init(location: CGPoint, flagsRawValue: UInt64, clickState: Int64) {
+      self.location = location
+      self.flagsRawValue = flagsRawValue
+      self.clickState = clickState
+    }
+  }
+
+  public enum Completion: Equatable, Sendable {
+    case replayRightClick(RightClickContext)
+    case gesture(String)
+  }
+
   public enum State: Equatable, Sendable {
     case idle
     case tracking
@@ -22,6 +39,7 @@ public struct GestureSession: Sendable {
   public private(set) var pathLength: CGFloat = 0
 
   private let configuration: Configuration
+  private var rightClickContext: RightClickContext?
 
   public init(configuration: Configuration = Configuration()) {
     self.configuration = configuration
@@ -38,6 +56,14 @@ public struct GestureSession: Sendable {
     reset()
     state = .tracking
     points.append(point)
+    return replacedExistingSession
+  }
+
+  /// 开始可延迟决策的右键会话，并保存普通点击补发所需的最小元数据。
+  @discardableResult
+  public mutating func begin(rightClick context: RightClickContext) -> Bool {
+    let replacedExistingSession = begin(at: context.location)
+    rightClickContext = context
     return replacedExistingSession
   }
 
@@ -59,6 +85,21 @@ public struct GestureSession: Sendable {
     return true
   }
 
+  /// 正常 mouse-up 才允许完成会话。异常路径必须调用 reset，返回值因而永远为 nil。
+  public mutating func finish() -> Completion? {
+    guard isTracking, let rightClickContext else {
+      reset()
+      return nil
+    }
+
+    let directions = GestureRecognizer.directions(from: points)
+    let completion: Completion = directions.isEmpty
+      ? .replayRightClick(rightClickContext)
+      : .gesture(directions)
+    reset()
+    return completion
+  }
+
   /// 结束或异常取消都回到 idle；返回本次是否确实取消了活动会话。
   @discardableResult
   public mutating func reset() -> Bool {
@@ -66,6 +107,7 @@ public struct GestureSession: Sendable {
     state = .idle
     points.removeAll(keepingCapacity: false)
     pathLength = 0
+    rightClickContext = nil
     return wasTracking
   }
 
