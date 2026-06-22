@@ -1,72 +1,117 @@
 # SafariGestures
 
-一个轻量的 macOS 菜单栏小程序，给 Safari 加「按住右键划动」鼠标手势——类似 Edge 自带的鼠标手势。只管 Safari、常驻内存很小，用来替代偏重的系统级手势工具。
+[![CI](https://github.com/bigbugneil/safari-gestures/actions/workflows/ci.yml/badge.svg)](https://github.com/bigbugneil/safari-gestures/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-**核心特点**：右键单击照常弹出原生菜单，只有「按住右键划动」才触发手势；划动时显示跟手轨迹线。
+SafariGestures is a lightweight macOS menu bar app that adds right-button mouse gestures to Safari. Hold the right mouse button and draw a gesture to go back, move between tabs, reload a page, and more.
 
-## 手势一览（按住右键划）
+It is designed as a focused alternative to system-wide gesture utilities:
 
-| 手势 | 动作 | 快捷键 |
+- **Safari only:** other apps receive mouse events unchanged.
+- **Native right-click behavior:** a normal right-click still opens Safari's context menu.
+- **Visible feedback:** a blue trail follows the pointer while a gesture is being drawn.
+- **Privacy first:** no network access, telemetry, keyboard-content reading, or user-data files.
+- **Small toolchain:** build with Swift Package Manager; full Xcode and an Apple Developer account are not required.
+
+## Gestures
+
+Hold the right mouse button, draw one of these paths, and then release:
+
+| Gesture | Action | Safari shortcut |
 |---|---|---|
-| ← 左 | 后退 | Cmd+[ |
-| → 右 | 前进 | Cmd+] |
-| ↓→ 先下再右 | 关闭标签页 | Cmd+W |
-| ←↑ 先左再上 | 重开已关标签 | Cmd+Shift+T |
-| →↑ 先右再上 | 新建标签页 | Cmd+T |
-| →↓ 先右再下 | 刷新 | Cmd+R |
-| ↑← 先上再左 | 切到左边标签 | Cmd+Shift+[ |
-| ↑→ 先上再右 | 切到右边标签 | Cmd+Shift+] |
+| `Left` | Go back | `Command + [` |
+| `Right` | Go forward | `Command + ]` |
+| `Down, Right` | Close the current tab | `Command + W` |
+| `Left, Up` | Reopen the last closed tab | `Command + Shift + T` |
+| `Right, Up` | Open a new tab | `Command + T` |
+| `Right, Down` | Reload the page | `Command + R` |
+| `Up, Left` | Select the tab to the left | `Command + Shift + [` |
+| `Up, Right` | Select the tab to the right | `Command + Shift + ]` |
 
-映射表在 `Sources/SafariGestures/GestureMap.swift`，方向识别在 `Sources/SafariGesturesCore/GestureRecognizer.swift`。
+Gesture mappings live in [`Sources/SafariGestures/GestureMap.swift`](Sources/SafariGestures/GestureMap.swift). Direction recognition is implemented in [`Sources/SafariGesturesCore/GestureRecognizer.swift`](Sources/SafariGesturesCore/GestureRecognizer.swift).
 
-## 工作原理
+## How It Works
 
-系统级 `CGEventTap`（`.defaultTap`）监听右键。仅当 Safari 在最前台时介入：按下右键先扣住（菜单不立即弹），松手时判断——划动超过阈值且命中手势 → 发对应快捷键并吞掉菜单；几乎没动（普通单击）→ 补发一次原生右键让菜单照常弹出。补发事件带标记，回调跳过以防回环。
+SafariGestures uses a session-level `CGEventTap` to observe right-button events. It intervenes only while Safari is the frontmost app:
 
-## 环境
+1. A right-button press is held temporarily instead of opening the context menu immediately.
+2. Pointer movement is recorded and shown as a gesture trail.
+3. On release, a recognized gesture sends the corresponding Safari keyboard shortcut.
+4. If the pointer barely moved, SafariGestures replays a marked right-click so the native context menu opens normally.
 
-- macOS 15+，Apple Silicon
-- Swift 6 / Command Line Tools（**不需要完整 Xcode、不需要 Apple 开发者账号**）
+Synthetic replay events are marked and ignored by the event callback to prevent event loops. The listener also recovers from Event Tap interruptions and rebuilds itself after sleep, wake, user-session, and display changes.
 
-## 权限
+## Requirements
 
-只需一项：**辅助功能**（系统设置 → 隐私与安全性 → 辅助功能）。`.defaultTap` 事件 tap 仅需此权限。
+- macOS 15 or later
+- Apple Silicon
+- Swift 6.1 or later and the Command Line Tools
+- Accessibility permission for SafariGestures
 
-## 构建与运行
+Input Monitoring permission is not required.
+
+The current menu bar interface uses Chinese labels. Gesture behavior is independent of the interface language.
+
+## Build and Run
+
+Clone the repository and run:
 
 ```bash
-# （可选，推荐）首次创建本机自签名证书：让重编重签后辅助功能授权不失效
+git clone https://github.com/bigbugneil/safari-gestures.git
+cd safari-gestures
+
+# Optional but recommended: create a local signing identity once.
 bash scripts/setup-signing-cert.sh
 
-# 编译
-bash scripts/build.sh
-
-# 打包成 .app（自动用上面的证书签名；无证书则回退 ad-hoc）
+# Build and package SafariGestures.app.
 bash scripts/make-app.sh
 
-# 运行
+# Launch the app from the project directory.
 open SafariGestures.app
+```
 
-# 跑自检（不依赖 Xcode）
+On first launch, grant SafariGestures access in **System Settings > Privacy & Security > Accessibility**. Then switch to Safari, hold the right mouse button, draw a gesture, and release.
+
+The menu bar item lets you check listener status, enable or disable gestures, restart the listener, launch the app at login, view app information, and quit.
+
+To use it as a daily app, copy `SafariGestures.app` to `~/Applications/` and enable launch at login from the menu bar item.
+
+## Stable Local Signing
+
+macOS remembers Accessibility permission using an app's code-signing identity. With ad-hoc signing, that identity changes after each rebuild, so the system may ask for permission again.
+
+[`scripts/setup-signing-cert.sh`](scripts/setup-signing-cert.sh) creates a free, self-signed code-signing identity in the login keychain. [`scripts/make-app.sh`](scripts/make-app.sh) uses it automatically, keeping the app's designated requirement stable across local rebuilds. The private key is non-exportable and restricted to `/usr/bin/codesign`.
+
+If the identity was created by an older version of the script, rotate it before the final installation:
+
+```bash
+bash scripts/setup-signing-cert.sh --rotate-insecure-existing
+```
+
+Rotation changes the signing identity, so Accessibility permission must be granted one final time. It is normal for macOS not to mark this self-signed certificate as trusted; that does not prevent local code signing or stable permission recognition.
+
+If no local identity exists, the packaging script falls back to ad-hoc signing.
+
+## Development Checks
+
+The project includes a zero-dependency self-test executable. It tests gesture recognition and right-click session logic without generating real mouse or keyboard input.
+
+```bash
+swift build -c release
 swift run -c release safari-gestures-selftest
 ```
 
-首次运行授予辅助功能权限后，在 Safari 里按住右键划动即可。菜单栏图标提供「启用/停用」「开机时启动」「关于」「退出」。
+CI runs both commands and verifies that the app bundle can be packaged and code-signed.
 
-## 稳定签名（为什么不用一直重新授权）
+## Project Layout
 
-macOS 的辅助功能授权按 App 的代码签名身份记忆。ad-hoc 签名每次重编 CDHash 都变 → 系统当成新 App → 要重新授权。`setup-signing-cert.sh` 创建一个**免费的自签名证书**，`make-app.sh` 用它签名后，App 的 designated requirement 绑定到证书而非 CDHash，**重编重签后仍是同一身份，授权不失效，只需首次授权一次**。自签名证书不被系统「信任」是正常的，不影响本机签名与授权稳定性。
-
-新版脚本以不可导出方式保存私钥，且不再使用不安全的 `security import -A`。如果本机身份由旧版脚本创建，最终安装前运行 `bash scripts/setup-signing-cert.sh --rotate-insecure-existing`；证书轮换后需要最后一次重新授予辅助功能权限。
-
-## 安装为日常版
-
-把编译好的 `SafariGestures.app` 拷到 `~/Applications/`，菜单里打开「开机时启动」即可常驻。版本用 git tag 记（如 `v0.2.0`）。
+| Path | Purpose |
+|---|---|
+| `Sources/SafariGestures/` | Menu bar app, Event Tap, gesture mapping, overlay, and shortcut dispatch |
+| `Sources/SafariGesturesCore/` | Gesture recognition and right-click session state machine |
+| `Sources/SelfTest/` | Zero-dependency logic self-tests |
+| `scripts/` | Build, packaging, icon, and local-signing utilities |
 
 ## License
 
-本项目基于 [MIT License](LICENSE) 开源，可自由使用、修改和再分发，仅需保留版权声明。
-
-## 退出
-
-菜单栏图标 →「退出」，或 `pkill -x SafariGestures`。
+SafariGestures is available under the [MIT License](LICENSE). You may use, copy, modify, and distribute it under the license terms.
